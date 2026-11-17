@@ -1,0 +1,20 @@
+# Compiled MQL5 files
+*.ex5
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# MetaTrader temporary folders
+.cache/
+Tester/
+Logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
