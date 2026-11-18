@@ -14,11 +14,12 @@ public:
       res.found = false; res.dir = EL_NONE; res.bar = -1; res.extreme = 0;
       double minW = atr * p.sweepMinATR;
 
-      for(int s = 1; s <= p.sweepMaxAge; s++)
+      int maxAge=MathMin(p.sweepMaxAge,ArraySize(r)-1);
+      for(int s=1;s<=maxAge;s++)
       {
          for(int pi = 0; pi < ArraySize(pools); pi++)
          {
-            if(pools[pi].t >= r[s].time) continue;
+            if(pools[pi].available > r[s].time) continue;
 
             if(pools[pi].isHigh)
             {
@@ -30,8 +31,9 @@ public:
                   double highest = r[s].high;
                   for(int k = s - 1; k >= 1; k--)
                   {
-                     if(r[k].close > pools[pi].price) { invalidated = true; break; }
-                     if(r[k].high > highest) highest = r[k].high;
+                     // Any later excursion through this pool supersedes the old sweep event.
+                     if(r[k].close > pools[pi].price || r[k].high > pools[pi].price)
+                     { invalidated = true; break; }
                   }
                   if(!invalidated)
                   {
@@ -54,8 +56,9 @@ public:
                   double lowest = r[s].low;
                   for(int k = s - 1; k >= 1; k--)
                   {
-                     if(r[k].close < pools[pi].price) { invalidated = true; break; }
-                     if(r[k].low < lowest) lowest = r[k].low;
+                     // A newer excursion through the low pool supersedes this event.
+                     if(r[k].close < pools[pi].price || r[k].low < pools[pi].price)
+                     { invalidated = true; break; }
                   }
                   if(!invalidated)
                   {

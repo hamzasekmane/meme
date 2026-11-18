@@ -12,6 +12,7 @@ input int    InpAsiaEnd      = 7;     // Asia session end (server hour)
 
 input group "=== Sweep / Structure ==="
 input double InpSweepMinATR  = 0.15;  // Min wick beyond pool (x ATR, recommended 0.15-0.30 for Gold)
+input double InpMinDisplacementATR = 0.50; // Explicit new eligibility rule; changes signal frequency, not risk sizing
 input int    InpSweepMaxAge  = 25;    // Max bars since sweep
 
 input group "=== Entry / Score ==="
@@ -39,6 +40,7 @@ ELParams EL_BuildParams()
    p.asiaStart    = InpAsiaStart;
    p.asiaEnd      = InpAsiaEnd;
    p.sweepMinATR  = InpSweepMinATR;
+   p.minDisplacementATR = InpMinDisplacementATR;
    p.sweepMaxAge  = InpSweepMaxAge;
    p.slBufATR     = InpSLBufATR;
    p.rrMin        = InpRRMin;

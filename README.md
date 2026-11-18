@@ -25,8 +25,10 @@ The codebase is built on a modular design where a single central orchestration e
     ├── EL_Signal.mqh       # Multi-factor confluence scoring engine (0-100)
     ├── EL_Filters.mqh      # Session Killzones, Spread filter, and News blackout
     ├── EL_Risk.mqh         # Fractional equity risk sizing & free margin validation
-    ├── EL_Trade.mqh        # CTrade wrapper, broker expiration fallback & BE management
-    └── EL_Engine.mqh       # Central orchestrator synchronizing all modules
+    ├── EL_Trade.mqh        # CTrade wrapper, expiry enforcement & BE management
+    ├── EL_Validation.mqh   # Tick-grid, pending-entry, SL/TP, broker-distance validation
+    ├── EL_MTF.mqh          # D1/H4/H1 swing bias and independent M5 confirmation
+    └── EL_Engine.mqh       # Shared signal and execution-eligibility orchestrator
 ```
 
 ---
@@ -41,19 +43,19 @@ The codebase is built on a modular design where a single central orchestration e
 
 2. **Liquidity Sweep & Confirmation (`EL_Sweep`):**
    - Price wicks beyond a known liquidity pool by at least `InpSweepMinATR` and closes back inside.
-   - Invalidation check: Ensures subsequent candles did not accept/close beyond the pool.
-   - Tracks the highest high / lowest low across the entire sweep sequence for bulletproof Stop Loss placement.
+   - Rejects a sweep after a later closed candle accepts or makes a newer excursion through that pool.
+   - Anchors structural SL to the detected sweep extreme plus/minus the configured ATR buffer.
 
 3. **Market Structure Shift (`EL_Structure`):**
    - Confirms Change of Character (CHoCH) when a candle body closes beyond the opposite swing that preceded the sweep.
 
 4. **Institutional Zones (`EL_Zones`):**
-   - **Order Block (OB):** Identifies the origin candle at the sweep extreme before displacement.
-   - **Fair Value Gap (FVG):** Detects 3-candle imbalance gaps and verifies mitigation status.
+   - **Order Block (OB):** Selects the nearest valid opposing candle preceding the MSS and rejects structural invalidation.
+   - **Fair Value Gap (FVG):** Detects a closed 3-candle imbalance formed after the sweep and at/before MSS; rejects filled gaps.
 
 5. **Scoring Engine (`EL_Signal`):**
    - Minimum threshold: `InpMinScore` (default 65 / 100).
-   - Sweep + CHoCH: 40 pts.
+   - Sweep + MSS: 40 pts; displacement is a separate eligibility gate, not extra points.
    - OB + FVG Confluence: +30 pts (or single zone: +20 pts).
    - Premium / Discount Dealing Range (below 50% for Buys, above 50% for Sells): +15 pts.
    - External Opposing Liquidity Target (>= `InpRRMin`): +10 pts.
@@ -63,12 +65,24 @@ The codebase is built on a modular design where a single central orchestration e
 
 ## 🛡 Engineering Improvements Implemented
 
+### Execution eligibility and timeframe hierarchy
+
+- D1/H4/H1 are evaluated as separate structural-bias contexts using their own confirmed swings. A mixed or unavailable bias blocks execution.
+- M15 is the only execution timeframe. A D1/H4/H1 chart may display analytical references but cannot label them as executable or trigger an EA order.
+- An M15 candidate additionally requires an independent M5 closed-candle break of its own opposing confirmed swing.
+- The MSS candle must meet the configurable `InpMinDisplacementATR` body threshold (default 0.50 ATR, measured against ATR on the break candle). This is a new explicit strategy filter and changes setup frequency.
+- The MTF bias/M5 confirmation rules and displacement threshold are deliberate conservative eligibility additions, not claims about the prior strategy's rules; validate them against the intended playbook.
+- Risk inputs remain unchanged (`InpSLBufATR=0.25`, `InpRRMin=2.0`, `InpRiskPct=0.5`); invalid geometry is rejected rather than hidden by changing risk.
+- Scores describe confluence only. `executionReady` separately requires aligned bias, M5 confirmation, a current valid limit price, broker geometry, and minimum RR.
+- OB/FVG entries are retracement limit references, never market prices. Stale/invalidated OBs, pre-sweep FVGs, already-mitigated FVGs, invalid targets and plans below minimum RR are rejected.
+- Tick-size normalization rounds structural stops outward. A broker without specified pending-order expiry is rejected rather than silently receiving a GTC order.
+
 1. **Anti-Repainting Swings:**
    - Swings scan strictly starts at `LR + 1` closed bars, completely isolating the open, forming bar 0.
 2. **Calendar-Day Asia Range:**
    - Replaced flawed `time % 86400` logic with `MqlDateTime` calendar day checks. Guarantees accurate Asian session range extraction across all broker server time zones (UTC+2, UTC+3, UTC+0).
-3. **Broker Expiration Adaptability:**
-   - Detects `SYMBOL_EXPIRATION_MODE`. If `ORDER_TIME_SPECIFIED` is not supported by the broker, automatically falls back to `ORDER_TIME_GTC` without throwing error `10015`.
+3. **Broker Expiration Safety:**
+   - Detects `SYMBOL_EXPIRATION_MODE`. If `ORDER_TIME_SPECIFIED` is unsupported, the pending order is rejected rather than left active as GTC.
 4. **Volume Step & Margin Protection:**
    - Dynamic lot size normalization according to `SYMBOL_VOLUME_STEP` digits.
    - Validates required margin via `OrderCalcMargin()` against 90% of free equity to prevent error `10019`.
@@ -85,6 +99,7 @@ The codebase is built on a modular design where a single central orchestration e
 | :--- | :---: | :--- |
 | **Recommended Timeframe** | `M15` | Best balance of noise reduction and clean SMC setups. |
 | `InpSweepMinATR` | `0.15 - 0.25` | Prevents tagging normal spread noise as sweeps. |
+| `InpMinDisplacementATR` | `0.50` | Minimum closed MSS body relative to ATR at that candle. |
 | `InpSLBufATR` | `0.25 - 0.35` | Protects against secondary retests/wicks on Gold. |
 | `InpRRMin` | `2.0 - 3.0` | Minimum 1:2 or 1:3 reward to risk. |
 | `InpMinScore` | `65` | Filters out low-confluence setups. |
@@ -100,5 +115,6 @@ The codebase is built on a modular design where a single central orchestration e
 2. Copy `Experts/EL_EA.mq5` into `MQL5/Experts/`.
 3. Copy `Indicators/EL_Indicator.mq5` into `MQL5/Indicators/`.
 4. Open MetaEditor and compile both `EL_EA.mq5` and `EL_Indicator.mq5`.
-5. Attach `EL_Indicator` to the XAUUSD M15 chart.
-6. To trade live, set `InpDryRun = false` and `InpAllowReal = true` on `EL_EA`.
+5. Attach `EL_Indicator` to the XAUUSD M15 chart; other chart timeframes are analytical-only.
+6. Attach `EL_EA` to M15. It places only validated limit orders after D1/H4/H1 bias alignment and M5 confirmation.
+7. Keep `InpDryRun = true` for verification. Live execution additionally requires `InpDryRun = false` and `InpAllowReal = true`.

@@ -114,27 +114,35 @@ void Draw()
    if(eng.sig.valid && eng.sig.score >= eng.p.minScore)
    {
       ELSignal s = eng.sig;
-      Line("EL_ENTRY", tNow, s.entry, tNow + ps * 15, s.entry, clrGold, STYLE_SOLID, false, "Entry");
-      Line("EL_SL",    tNow, s.sl,    tNow + ps * 15, s.sl,    clrRed,  STYLE_SOLID, false, "SL");
-      Line("EL_TP",    tNow, s.tp,    tNow + ps * 15, s.tp,    clrLime, STYLE_SOLID, false, "TP");
+      string planLabel=s.executionReady ? (s.dir==EL_BUY ? "BUY LIMIT (READY)" : "SELL LIMIT (READY)")
+                                        : (s.expired ? "EXPIRED REFERENCE" : "ANALYTICAL REFERENCE - WAIT / NOT EXECUTABLE");
+      if(!s.executionReady) planLabel+=" | "+s.reason;
+      color entryColor=s.executionReady ? clrGold : clrSilver;
+      Line("EL_ENTRY", tNow, s.entry, tNow + ps * 15, s.entry, entryColor, STYLE_SOLID, false, planLabel);
+      Line("EL_SL",    tNow, s.sl,    tNow + ps * 15, s.sl,    clrRed,  STYLE_SOLID, false, "Structural SL reference");
+      Line("EL_TP",    tNow, s.tp,    tNow + ps * 15, s.tp,    clrLime, STYLE_SOLID, false, "External liquidity target");
 
-      string n = "ELS_" + TimeToString(s.sweepTime, TIME_DATE | TIME_MINUTES);
-      if(ObjectFind(0, n) < 0)
+      if(s.executionReady)
       {
-         ObjectCreate(0, n, OBJ_ARROW, 0, s.t, s.entry);
-         ObjectSetInteger(0, n, OBJPROP_ARROWCODE, s.dir == EL_BUY ? 233 : 234);
-         ObjectSetInteger(0, n, OBJPROP_COLOR, s.dir == EL_BUY ? clrLime : clrRed);
-         ObjectSetInteger(0, n, OBJPROP_WIDTH, 3);
-         ObjectSetString(0,  n, OBJPROP_TEXT, s.reason + " | " + IntegerToString(s.score));
-      }
-      if(InpAlerts && s.sweepTime != lastAlert)
-      {
-         lastAlert = s.sweepTime;
-         Alert(_Symbol, " ", (s.dir == EL_BUY ? "BUY" : "SELL"),
-               " score ", s.score,
-               " entry ", DoubleToString(s.entry, _Digits),
-               " SL ", DoubleToString(s.sl, _Digits),
-               " TP ", DoubleToString(s.tp, _Digits));
+         string n = "ELS_" + TimeToString(s.sweepTime, TIME_DATE | TIME_MINUTES);
+         if(ObjectFind(0, n) < 0)
+         {
+            ObjectCreate(0, n, OBJ_ARROW, 0, s.t, s.entry);
+            ObjectSetInteger(0, n, OBJPROP_ARROWCODE, s.dir == EL_BUY ? 233 : 234);
+            ObjectSetInteger(0, n, OBJPROP_COLOR, s.dir == EL_BUY ? clrLime : clrRed);
+            ObjectSetInteger(0, n, OBJPROP_WIDTH, 3);
+            ObjectSetString(0,  n, OBJPROP_TEXT, s.reason + " | " + IntegerToString(s.score));
+         }
+         if(InpAlerts && s.sweepTime != lastAlert)
+         {
+            lastAlert = s.sweepTime;
+            Alert(_Symbol, " ", (s.dir == EL_BUY ? "BUY LIMIT READY" : "SELL LIMIT READY"),
+                  " score ", s.score,
+                  " entry ", DoubleToString(s.entry, _Digits),
+                  " SL ", DoubleToString(s.sl, _Digits),
+                  " TP ", DoubleToString(s.tp, _Digits),
+                  " expires ", TimeToString(s.expiresAt));
+         }
       }
    }
    else
@@ -152,10 +160,13 @@ int OnCalculate(const int rates_total,const int prev_calculated,const datetime &
                 const long &tick_volume[],const long &volume[],const int &spread[])
 {
    if(rates_total < 100) return 0;
-   datetime cur = time[rates_total - 1];
-   if(cur == lastBar) return rates_total;
-   lastBar = cur;
+   datetime cur=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,0);
+   if(cur<=0 || cur==lastBar) return rates_total;
+   lastBar=cur;
 
-   if(eng.Update()) Draw();
+   // Draw even when history/indicator buffers are temporarily unavailable; Update()
+   // clears the signal first, so old entry/SL/TP objects cannot linger as active.
+   eng.Update();
+   Draw();
    return rates_total;
 }
