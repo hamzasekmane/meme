@@ -10,6 +10,7 @@ struct ELParams
    int    asiaStart;     // server hour
    int    asiaEnd;
    double sweepMinATR;   // min wick beyond the pool (x ATR)
+   double minDisplacementATR; // minimum body of MSS candle (x ATR)
    int    sweepMaxAge;   // max bars since sweep
    double slBufATR;      // SL buffer beyond sweep extreme (x ATR)
    double rrMin;         // min reward:risk

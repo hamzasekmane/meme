@@ -2,6 +2,7 @@
 #define EL_TRADE_MQH
 #include <Trade/Trade.mqh>
 #include <EL/EL_Types.mqh>
+#include <EL/EL_Validation.mqh>
 
 class CELTrade
 {
@@ -34,52 +35,46 @@ public:
 
    bool PlaceLimit(string sym,const ELSignal &s,double lots,datetime expiry)
    {
+      if(!s.valid || !s.executionReady || lots<=0 ||
+         (s.dir==EL_BUY && s.entryKind!=EL_ENTRY_BUY_LIMIT) ||
+         (s.dir==EL_SELL && s.entryKind!=EL_ENTRY_SELL_LIMIT))
+      {
+         Print("EL: Refusing a non-executable or non-limit signal.");
+         return false;
+      }
+      datetime actualExpiry=(datetime)MathMin((double)expiry,(double)s.expiresAt);
+      if(actualExpiry<=TimeCurrent())
+      {
+         Print("EL: Refusing expired signal/order.");
+         return false;
+      }
+
+      double e=s.entry,sl=s.sl,tp=s.tp;
+      string why="";
+      if(!EL_ValidateLimitPlan(sym,s.dir,e,sl,tp,0.0,why))
+      {
+         PrintFormat("EL: Pending-order validation failed at send time: %s",why);
+         return false;
+      }
+
+      // Never silently fall back to GTC: that would leave a stale limit order alive.
+      uint expMode=(uint)SymbolInfoInteger(sym,SYMBOL_EXPIRATION_MODE);
+      if((expMode & SYMBOL_EXPIRATION_SPECIFIED)==0)
+      {
+         Print("EL: Broker does not support specified pending-order expiry; order rejected for safety.");
+         return false;
+      }
+
       t.SetTypeFillingBySymbol(sym);
-      int dg = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-      double pt = SymbolInfoDouble(sym, SYMBOL_POINT);
-      int stopsLevel = (int)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL);
-      double minDist = stopsLevel * pt;
-
-      double e  = NormalizeDouble(s.entry, dg);
-      double sl = NormalizeDouble(s.sl, dg);
-      double tp = NormalizeDouble(s.tp, dg);
-
-      // Validate against current market price and broker stops level
-      double curAsk = SymbolInfoDouble(sym, SYMBOL_ASK);
-      double curBid = SymbolInfoDouble(sym, SYMBOL_BID);
-
-      if(s.dir == EL_BUY && (curAsk - e) < minDist)
-      {
-         PrintFormat("EL: BuyLimit price %.2f too close to Ask %.2f (stopsLevel=%d)", e, curAsk, stopsLevel);
-         return false;
-      }
-      if(s.dir == EL_SELL && (e - curBid) < minDist)
-      {
-         PrintFormat("EL: SellLimit price %.2f too close to Bid %.2f (stopsLevel=%d)", e, curBid, stopsLevel);
-         return false;
-      }
-
-      // Check broker expiration policy: fallback to GTC if SPECIFIED is not supported
-      uint expMode = (uint)SymbolInfoInteger(sym, SYMBOL_EXPIRATION_MODE);
-      ENUM_ORDER_TYPE_TIME timeType = ORDER_TIME_GTC;
-      datetime expTime = 0;
-
-      if((expMode & SYMBOL_EXPIRATION_SPECIFIED) != 0 && expiry > TimeCurrent())
-      {
-         timeType = ORDER_TIME_SPECIFIED;
-         expTime  = expiry;
-      }
-
-      bool ok = (s.dir == EL_BUY)
-              ? t.BuyLimit(lots, e, sym, sl, tp, timeType, expTime, "EL")
-              : t.SellLimit(lots, e, sym, sl, tp, timeType, expTime, "EL");
+      bool ok=(s.dir==EL_BUY)
+             ? t.BuyLimit(lots,e,sym,sl,tp,ORDER_TIME_SPECIFIED,actualExpiry,"EL")
+             : t.SellLimit(lots,e,sym,sl,tp,ORDER_TIME_SPECIFIED,actualExpiry,"EL");
 
       if(!ok)
-         PrintFormat("EL: Limit order failed! Retcode=%d (%s)", t.ResultRetcode(), t.ResultRetcodeDescription());
+         PrintFormat("EL: Limit order failed! Retcode=%d (%s)",t.ResultRetcode(),t.ResultRetcodeDescription());
       else
-         PrintFormat("EL: %s Limit order placed at %.2f (SL: %.2f, TP: %.2f, Lots: %.2f)",
-                     s.dir == EL_BUY ? "BUY" : "SELL", e, sl, tp, lots);
-
+         PrintFormat("EL: %s Limit order placed at %.2f (SL: %.2f, TP: %.2f, Lots: %.2f, expiry: %s)",
+                     s.dir==EL_BUY?"BUY":"SELL",e,sl,tp,lots,TimeToString(actualExpiry));
       return ok;
    }
 

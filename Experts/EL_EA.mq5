@@ -38,6 +38,8 @@ int OnInit()
 
    if(!eng.Init(_Symbol, (ENUM_TIMEFRAMES)_Period, EL_BuildParams()))
       return INIT_FAILED;
+   if(_Period!=PERIOD_M15)
+      Print("EL: This EA timeframe is analysis-only. Execution is gated to M15 setups with aligned D1/H4/H1 bias and M5 confirmation.");
 
    trd.Init(InpMagic, InpDeviation);
    PrintFormat("EL_EA initialized successfully. Mode: %s | Magic: %d", InpDryRun ? "DRY-RUN (Simulated)" : "LIVE TRADING", InpMagic);
@@ -64,6 +66,16 @@ void OnTick()
 
    ELSignal s = eng.sig;
    if(!s.valid || s.score < eng.p.minScore) return;
+   if(!s.executionReady)
+   {
+      PrintFormat("EL: WAIT (not executable) | state=%d score=%d | %s",s.state,s.score,s.reason);
+      return;
+   }
+   if(s.expiresAt<=TimeCurrent())
+   {
+      PrintFormat("EL: Setup expired before execution. Sweep=%s expiry=%s",TimeToString(s.sweepTime),TimeToString(s.expiresAt));
+      return;
+   }
    if(s.sweepTime == lastSweep) return; // One trade per sweep event
    if(trd.HasExposure(_Symbol)) return; // Only one active exposure at a time
 
@@ -84,7 +96,12 @@ void OnTick()
 
    if(!InpDryRun)
    {
-      datetime expiry = now + PeriodSeconds() * InpExpiryBars;
+      datetime expiry = s.t + (datetime)(PeriodSeconds((ENUM_TIMEFRAMES)_Period) * InpExpiryBars);
+      if(expiry<=now)
+      {
+         Print("EL: Signal expired before pending-order placement; refusing to renew an old setup.");
+         return;
+      }
       if(trd.PlaceLimit(_Symbol, s, lots, expiry))
       {
          lastSweep = s.sweepTime;

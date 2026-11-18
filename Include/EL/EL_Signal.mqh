@@ -4,64 +4,129 @@
 #include <EL/EL_Config.mqh>
 #include <EL/EL_Filters.mqh>
 
-// Combines sweep + CHoCH + zone into a scored trade plan (limit entry at zone midpoint).
+bool EL_IsExternalLiquidity(const string tag)
+{
+   return tag=="EQH" || tag=="EQL" || tag=="PDH" || tag=="PDL" ||
+          tag=="PWH" || tag=="PWL" || tag=="ASH" || tag=="ASL";
+}
+
+bool EL_TargetUntouchedSinceAvailable(string sym,ENUM_TIMEFRAMES tf,const ELPool &pool)
+{
+   MqlRates history[]; ArraySetAsSeries(history,true);
+   int count=CopyRates(sym,tf,pool.available,TimeCurrent(),history);
+   if(count<1) return false; // fail closed when the target history cannot be verified
+   for(int j=1;j<count;j++) // ignore the forming bar; only closed candles can consume a target
+   {
+      if(history[j].time<pool.available) continue;
+      if(pool.isHigh && history[j].high>=pool.price) return false;
+      if(!pool.isHigh && history[j].low<=pool.price) return false;
+   }
+   return true;
+}
+
+// A valid plan is still analytical until all execution gates in CELEngine pass.
 class CELSig
 {
 public:
-   void Build(const MqlRates &r[],const ELSweep &sw,const ELBreak &bk,const ELZone &ob,const ELZone &fvg,
-              const ELPool &pools[],double atr,const ELParams &p,ELSignal &s)
+   void Reset(ELSignal &s)
    {
-      s.valid=false; s.score=0; s.reason=""; s.dir=EL_NONE; s.entry=0; s.sl=0; s.tp=0;
-      if(!sw.found || !bk.found) return;
-      if(!ob.valid && !fvg.valid) return;
-      int dir=sw.dir;
+      s.valid=false; s.dir=EL_NONE; s.entry=0; s.sl=0; s.tp=0; s.score=0;
+      s.t=0; s.sweepTime=0; s.expiresAt=0; s.entryKind=EL_ENTRY_ANALYTICAL;
+      s.state=EL_STATE_WAIT; s.biasConfirmed=false; s.liquiditySwept=false;
+      s.structureConfirmed=false; s.displacementConfirmed=false; s.zoneIdentified=false;
+      s.entryValidated=false; s.riskValidated=false; s.executionReady=false;
+      s.invalidated=false; s.expired=false; s.reason="WAIT";
+   }
 
-      double zt=0, zb=0; int sc=40; // sweep 20 + CHoCH 20
-      string why="Sweep+CHoCH";
+   void Build(string sym,ENUM_TIMEFRAMES tf,const MqlRates &r[],const ELSweep &sw,const ELBreak &bk,const ELZone &ob,const ELZone &fvg,
+              const ELPool &pools[],double atr,double breakAtr,const ELParams &p,int tfSeconds,ELSignal &s)
+   {
+      Reset(s);
+      if(ArraySize(r)<3 || !sw.found) return;
+      s.liquiditySwept=true;
+      s.state=EL_LIQUIDITY_SWEPT;
+      s.dir=sw.dir;
+      s.sweepTime=r[sw.bar].time;
+      s.t=r[1].time;
+      s.expiresAt=s.sweepTime+(datetime)(tfSeconds*p.sweepMaxAge);
+
+      if(!bk.found) return;
+      s.structureConfirmed=true;
+      s.state=EL_STRUCTURE_CONFIRMED;
+
+      // A structural close alone is not displacement. Require a completed MSS candle
+      // with a body at least InpMinDisplacementATR * the prior closed-bar ATR.
+      double body=MathAbs(r[bk.bar].close-r[bk.bar].open);
+      if(breakAtr<=0 || p.minDisplacementATR<0 || body<breakAtr*p.minDisplacementATR) return;
+      s.displacementConfirmed=true;
+      s.state=EL_DISPLACEMENT_CONFIRMED;
+
+      if(!ob.valid && !fvg.valid) return;
+      s.zoneIdentified=true;
+      s.state=EL_ZONE_IDENTIFIED;
+
+      int dir=sw.dir;
+      double zt=0,zb=0;
+      int sc=40; // sweep + confirmed structure
+      string why="Sweep+MSS+Displacement";
       if(ob.valid && fvg.valid && MathMin(ob.top,fvg.top)>MathMax(ob.bottom,fvg.bottom))
       { zt=MathMin(ob.top,fvg.top); zb=MathMax(ob.bottom,fvg.bottom); sc+=30; why+="+OB&FVG"; }
       else if(fvg.valid){ zt=fvg.top; zb=fvg.bottom; sc+=20; why+="+FVG"; }
       else { zt=ob.top; zb=ob.bottom; sc+=20; why+="+OB"; }
 
-      double entry=(zt+zb)/2.0;
+      // This is a retracement limit reference, never a market execution price.
+      double entry=(zt+zb)*0.5;
       double buf=atr*p.slBufATR;
       double sl=(dir==EL_BUY)? sw.extreme-buf : sw.extreme+buf;
-      double risk=MathAbs(entry-sl);
+      double risk=(dir==EL_BUY)? entry-sl : sl-entry;
       if(risk<=0) return;
       if(dir==EL_BUY && entry<=sl) return;
       if(dir==EL_SELL && entry>=sl) return;
 
-      // Price must still be on the "approach" side of the entry and not past the stop
-      double px=r[0].close;
-      if(dir==EL_BUY  && (px<=entry || px<=sl)) return;
-      if(dir==EL_SELL && (px>=entry || px>=sl)) return;
+      // Only closed market data participates in validation and dealing-range calculations.
+      double px=r[1].close;
+      if(dir==EL_BUY && (px<=entry || px<=sl))
+      { s.invalidated=true; s.state=EL_INVALIDATED; s.reason="INVALIDATED: BUY retracement entry was reached/passed"; return; }
+      if(dir==EL_SELL && (px>=entry || px>=sl))
+      { s.invalidated=true; s.state=EL_INVALIDATED; s.reason="INVALIDATED: SELL retracement entry was reached/passed"; return; }
+      s.entryValidated=true;
+      s.entryKind=(dir==EL_BUY)?EL_ENTRY_BUY_LIMIT:EL_ENTRY_SELL_LIMIT;
+      s.state=EL_ENTRY_VALIDATED;
 
-      // Premium / Discount of the dealing range (sweep extreme -> opposite extreme since sweep)
-      double ext=sw.extreme, opp=sw.extreme;
-      for(int j=0;j<=sw.bar;j++)
+      double ext=sw.extreme,opp=sw.extreme;
+      for(int j=1;j<=sw.bar && j<ArraySize(r);j++)
       {
-         if(dir==EL_BUY)  opp=MathMax(opp,r[j].high);
-         else             opp=MathMin(opp,r[j].low);
+         if(dir==EL_BUY) opp=MathMax(opp,r[j].high);
+         else            opp=MathMin(opp,r[j].low);
       }
-      double eq=(ext+opp)/2.0;
-      if((dir==EL_BUY && entry<=eq) || (dir==EL_SELL && entry>=eq)){ sc+=15; why+="+P/D"; }
+      double eq=(ext+opp)*0.5;
+      if((dir==EL_BUY && entry<=eq) || (dir==EL_SELL && entry>=eq))
+      { sc+=15; why+="+P/D"; }
 
-      // Target: nearest opposite pool giving at least rrMin, else fixed RR
-      double tp=0; bool poolTp=false;
+      // Target only a qualifying external pool beyond both the entry RR threshold and
+      // the current closed price. No fixed-R fallback masquerades as external liquidity.
+      double tp=0;
       for(int i=0;i<ArraySize(pools);i++)
       {
-         if(dir==EL_BUY && pools[i].isHigh && pools[i].price>entry+risk*p.rrMin)
+         if(!EL_IsExternalLiquidity(pools[i].tag) || !EL_TargetUntouchedSinceAvailable(sym,tf,pools[i])) continue;
+         if(dir==EL_BUY && pools[i].isHigh && pools[i].price>entry+risk*p.rrMin && pools[i].price>px)
          { if(tp==0 || pools[i].price<tp) tp=pools[i].price; }
-         if(dir==EL_SELL && !pools[i].isHigh && pools[i].price<entry-risk*p.rrMin)
+         if(dir==EL_SELL && !pools[i].isHigh && pools[i].price<entry-risk*p.rrMin && pools[i].price<px)
          { if(tp==0 || pools[i].price>tp) tp=pools[i].price; }
       }
-      if(tp==0) tp=(dir==EL_BUY)? entry+risk*p.rrMin : entry-risk*p.rrMin;
-      else { poolTp=true; sc+=10; why+="+LiqTarget"; }
+      if(tp<=0) return;
+      double rr=(dir==EL_BUY)?(tp-entry)/risk:(entry-tp)/risk;
+      if(rr+1e-8<p.rrMin) return;
+      sc+=10; why+="+ExternalLiqTarget";
 
-      if(EL_InKillzone(r[0].time,p)){ sc+=10; why+="+KZ"; }
+      if(EL_InKillzone(s.t,p)){ sc+=10; why+="+KZ"; }
 
-      s.valid=true; s.dir=dir; s.entry=entry; s.sl=sl; s.tp=tp;
-      s.score=MathMin(sc,100); s.t=r[0].time; s.sweepTime=r[sw.bar].time; s.reason=why;
+      s.valid=true;
+      s.entry=entry; s.sl=sl; s.tp=tp;
+      s.score=MathMin(sc,100);
+      s.reason=why;
+      s.riskValidated=true;
+      s.state=EL_RISK_VALIDATED;
    }
 };
 #endif
