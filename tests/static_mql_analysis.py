@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = list((ROOT / "Include/EL").glob("*.mqh"))
 SOURCES += list((ROOT / "Experts").glob("*.mq5"))
 SOURCES += list((ROOT / "Indicators").glob("*.mq5"))
+SOURCES += list((ROOT / "tests").glob("*.mq5"))
 errors = []
 
 

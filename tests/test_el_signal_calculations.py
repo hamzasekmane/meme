@@ -41,6 +41,16 @@ def ceil_tick(price, tick):
     return round(math.ceil(price / tick - 1e-10) * tick, 8)
 
 
+def lots_by_risk(equity, risk_pct, entry, sl, tick_size, tick_value, volume_step, volume_min):
+    distance = abs(entry - sl)
+    if equity <= 0 or tick_size <= 0 or tick_value <= 0 or distance <= 0:
+        return 0.0
+    loss_per_lot = (distance / tick_size) * tick_value
+    lots = (equity * risk_pct / 100.0) / loss_per_lot
+    lots = int(lots / volume_step) * volume_step
+    return 0.0 if lots < volume_min else round(lots, 8)
+
+
 def valid_limit_plan(plan, bid, ask, tick, stop_points=0, point=0.01, rr_min=2.0):
     if plan is None:
         return False
@@ -105,6 +115,21 @@ class SignalCalculationTests(unittest.TestCase):
         self.assertTrue(valid_limit_plan(plan, bid=3900, ask=3900.1, tick=0.01))
         src = (ROOT / "Include/EL/EL_Validation.mqh").read_text()
         self.assertIn("reward/risk+1e-8<rrMin", src)
+
+    def test_excessive_sl_distance_is_preserved_and_minimum_lot_is_skipped(self):
+        # XAUUSD-style fixture only: 0.01 tick, $1 tick value, 0.01 minimum volume.
+        # A 500.00 structural stop implies less than min lot at 0.5% of $10,000 risk.
+        entry, structural_sl = 4000.0, 4500.0
+        lot = lots_by_risk(10000, 0.5, entry, structural_sl, 0.01, 1.0, 0.01, 0.01)
+        self.assertEqual(structural_sl, 4500.0)  # never clamp or move the structural SL
+        self.assertEqual(lot, 0.0)  # skip rather than over-risk at minimum volume
+        risk_source = (ROOT / "Include/EL/EL_Risk.mqh").read_text()
+        ea_source = (ROOT / "Experts/EL_EA.mq5").read_text()
+        self.assertIn("double dist = MathAbs(entry - sl);", risk_source)
+        self.assertIn("if(lots < vmin) return 0;", risk_source)
+        self.assertIn("if(lots <= 0)", ea_source)
+        self.assertNotIn("sl=MathMin", risk_source)
+        self.assertNotIn("sl=MathMax", risk_source)
 
     def test_final_plan_fields_flow_to_shared_engine_indicator_and_ea(self):
         signal = (ROOT / "Include/EL/EL_Signal.mqh").read_text()
