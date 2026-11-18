@@ -84,15 +84,15 @@ The shared implementation now treats chart-timeframe signals as **analytical pla
 
 ### Automated tests
 
-`python3 -m unittest discover -s tests -v` runs **21 portable regression/contract tests**, including the 15 requested cases (far SELL/BUY, valid limits, invalid side, stale OB, invalidated sweep, no displacement/MSS, timeframe guard, wide structural SL preservation, TP direction, RR, indicator/EA readiness consistency, and new-bar reset). The XAUUSD-style fixture uses 0.01 price/tick increments and tests the screenshot values as exact two-decimal prices; with those exact displayed prices the target misses 2R by 0.01. The source reads actual `SYMBOL_TRADE_TICK_SIZE`, `SYMBOL_POINT`, stop level, and symbol quotes at runtime.
+`python3 -m unittest discover -s tests -v` runs **28 portable regression/calculation tests**: 21 source-contract and regression checks (including the 15 requested cases) plus 7 signal/entry/SL/TP reference-model calculation cases. Coverage includes far SELL/BUY, valid/invalid limits, stale OB, invalidated sweep, missing displacement/MSS, timeframe gating, wide structural SL preservation, TP direction, RR after tick mapping, shared indicator/EA plan fields, and new-bar refresh. The XAUUSD-style fixture uses 0.01 price/tick increments and tests the screenshot values as exact two-decimal prices; with those exact displayed prices the target misses 2R by 0.01. The reference-model cases are deterministic and paired with source-contract checks, but do not execute MQL bytecode. Runtime code reads actual `SYMBOL_TRADE_TICK_SIZE`, `SYMBOL_POINT`, stop level, and symbol quotes.
 
-**Result:** 21 passed in Python after the latest source edits; this is not an MQL5 compile or MT5 runtime test.
+**Result:** 28 tests passed. This is not an MQL5 compile or MT5 runtime test.
 
 ### Static checks
 
-- `git diff --check`: passed after the final source edits.
-- MQL source-contract assertions are included in the Python tests.
-- No `MetaEditor`/MQL5 compiler is installed in this workspace. **MQL5 compilation was not run and is not claimed.**
+- `python3 tests/static_mql_analysis.py`: passed for 17 MQL source files (internal include resolution, include guards, balanced delimiters, ELParams initialization, and key execution contracts).
+- `git diff --check`: passed.
+- No `MetaEditor`/MQL5 compiler or Wine is installed in this workspace. **MQL5 compilation could not be run and is not claimed.**
 - No real broker specification is available from the source repo or screenshot. **Actual XAUUSD tick size, tick value, digits, volume step, stop/freeze levels, expiration mode, and live quote validation remain to be checked in the target MT5 terminal.**
 
 ## E. Modified files
@@ -112,6 +112,8 @@ The shared implementation now treats chart-timeframe signals as **analytical pla
 - New `Include/EL/EL_MTF.mqh`
 - New `Include/EL/EL_Validation.mqh`
 - New `tests/test_el_audit_contracts.py`
+- New `tests/test_el_signal_calculations.py`
+- New `tests/static_mql_analysis.py`
 - `README.md`
 
 ## F. Remaining limitations / MT5 work required
