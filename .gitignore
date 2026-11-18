@@ -1,6 +1,10 @@
 # Compiled MQL5 files
 *.ex5
 
+# Python test artifacts
+__pycache__/
+*.py[cod]
+
 # Logs and temporary files
 *.log
 *.tmp
