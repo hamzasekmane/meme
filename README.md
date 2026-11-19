@@ -118,3 +118,27 @@ The codebase is built on a modular design where a single central orchestration e
 5. Attach `EL_Indicator` to the XAUUSD M15 chart; other chart timeframes are analytical-only.
 6. Attach `EL_EA` to M15. It places only validated limit orders after D1/H4/H1 bias alignment and M5 confirmation.
 7. Keep `InpDryRun = true` for verification. Live execution additionally requires `InpDryRun = false` and `InpAllowReal = true`.
+
+---
+
+## 🐍 Optional Python Research Toolkit
+
+The repository also includes `gold_entry_engine/`, a separate modular Python
+pipeline for CSV/optional MT5 data, indicators and SMC-style features, signal
+strategies, risk sizing, filters, OHLC backtesting, metrics, and walk-forward
+research. It is an **offline research tool only**; it does not place live orders.
+
+Install dependencies and run a CSV backtest from the repository root:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -r gold_entry_engine/requirements.txt
+python -m gold_entry_engine.main --data path/to/XAUUSD_M15.csv
+```
+
+See [`gold_entry_engine/README.md`](gold_entry_engine/README.md) for the CSV
+schema, strategy options, tests, and limitations. The YAML tick-value/spread
+examples are not verified broker specifications; replace them with the exact
+contract values for the target symbol. Historical results are not evidence of
+future profitability.

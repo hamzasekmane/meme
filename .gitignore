@@ -1,14 +1,20 @@
 # Compiled MQL5 files
 *.ex5
 
-# Python test artifacts
+# Python test artifacts and local environments
 __pycache__/
 *.py[cod]
+.venv/
+venv/
+*.egg-info/
 
 # Logs and temporary files
 *.log
 *.tmp
 *.bak
+
+# Generated Python research reports
+results/
 
 # MetaTrader temporary folders
 .cache/
