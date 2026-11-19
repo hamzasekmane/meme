@@ -1,0 +1,52 @@
+# Example defaults for research/backtesting only. Do not treat broker values below
+# as verified contract specifications for your XAUUSD symbol.
+symbol: XAUUSD
+source_timezone: UTC
+timeframe: M15
+strategy: liquidity_sweep
+
+indicators:
+  atr_period: 14
+
+sessions:
+  Asia:
+    timezone: UTC
+    start: "00:00"
+    end: "09:00"
+  London:
+    timezone: Europe/London
+    start: "08:00"
+    end: "17:00"
+  New_York:
+    timezone: America/New_York
+    start: "08:00"
+    end: "17:00"
+
+risk:
+  starting_equity: 10000.0
+  risk_per_trade_pct: 0.5
+  tick_size: 0.01
+  tick_value_per_lot: 1.0 # EXAMPLE ONLY: replace with the broker's live contract value
+  volume_min: 0.01
+  volume_max: 100.0
+  volume_step: 0.01
+  daily_drawdown_limit_pct: 3.0
+
+backtest:
+  spread_price: 0.20
+  slippage_price: 0.05
+  commission_per_lot: 0.0
+  max_positions: 1
+
+filters:
+  max_spread_points: 60
+  point_size: 0.01
+  use_regime_filter: false
+  news_blackout_before_minutes: 30
+  news_blackout_after_minutes: 15
+  news_csv: null
+  require_news_calendar: false
+
+output:
+  report_file: results/backtest.json
+  log_file: results/engine.log

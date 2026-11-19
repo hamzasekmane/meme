@@ -1,0 +1,37 @@
+trend_pullback:
+  fast_ema: 20
+  slow_ema: 50
+  rsi_period: 14
+  atr_period: 14
+  rsi_buy_min: 45
+  rsi_buy_max: 70
+  rsi_sell_min: 30
+  rsi_sell_max: 55
+  stop_atr: 1.5
+  swing_lookback: 8
+  reward_risk: 2.0
+
+breakout_retest:
+  range_lookback: 20
+  max_retest_bars: 8
+  retest_tolerance_atr: 0.15
+  atr_period: 14
+  stop_atr: 1.5
+  reward_risk: 2.0
+
+liquidity_sweep:
+  lookback: 20
+  min_sweep_atr: 0.15
+  stop_buffer_atr: 0.25
+  atr_period: 14
+  reward_risk: 2.0
+  require_reversal_candle: true
+
+aggregator:
+  minimum_confidence: 60
+  minimum_agreement: 1
+  agreement_bonus: 5
+  weights:
+    trend_pullback: 1.0
+    breakout_retest: 1.0
+    liquidity_sweep: 1.2
